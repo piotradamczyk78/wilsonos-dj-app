@@ -1,15 +1,17 @@
-import { StyleSheet, Text, View, ScrollView, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { Colors } from '@/constants/Colors';
+import { DJ_PERSONAS, FREE_PERSONA, type DJPersonaId } from '@/constants/DJPersonas';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   getPlaylistTracks,
   getArtists,
   type SpotifyTrack,
 } from '@/services/spotify';
+import { generatePlaylistAnalysis } from '@/services/claude';
 
 interface AnalysisResult {
   trackCount: number;
@@ -30,7 +32,6 @@ function analyzeData(tracks: SpotifyTrack[], genres: Map<string, string[]>): Ana
   const explicitCount = tracks.filter((t) => t.explicit).length;
   const totalDurationMs = tracks.reduce((s, t) => s + t.duration_ms, 0);
 
-  // Decades
   const decadeMap = new Map<string, number>();
   for (const t of tracks) {
     const year = parseInt(t.album.release_date?.substring(0, 4) || '0', 10);
@@ -40,7 +41,6 @@ function analyzeData(tracks: SpotifyTrack[], genres: Map<string, string[]>): Ana
     }
   }
 
-  // Genre counts
   const genreMap = new Map<string, number>();
   for (const t of tracks) {
     for (const artist of t.artists) {
@@ -51,14 +51,12 @@ function analyzeData(tracks: SpotifyTrack[], genres: Map<string, string[]>): Ana
     }
   }
 
-  // Artist frequency
   const artistMap = new Map<string, number>();
   for (const t of tracks) {
-    const name = t.artists[0]?.name;
-    if (name) artistMap.set(name, (artistMap.get(name) || 0) + 1);
+    const n = t.artists[0]?.name;
+    if (n) artistMap.set(n, (artistMap.get(n) || 0) + 1);
   }
 
-  // Popularity spread
   let low = 0, mid = 0, high = 0;
   for (const t of tracks) {
     if (t.popularity >= 70) high++;
@@ -72,56 +70,22 @@ function analyzeData(tracks: SpotifyTrack[], genres: Map<string, string[]>): Ana
     explicitRatio: explicitCount / trackCount,
     avgDurationMin: totalDurationMs / trackCount / 60000,
     totalDurationMin: totalDurationMs / 60000,
-    topGenres: [...genreMap.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([genre, count]) => ({ genre, count })),
-    decades: [...decadeMap.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([decade, count]) => ({ decade, count })),
+    topGenres: [...genreMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([genre, count]) => ({ genre, count })),
+    decades: [...decadeMap.entries()].sort((a, b) => b[1] - a[1]).map(([decade, count]) => ({ decade, count })),
     uniqueArtists: artistMap.size,
-    topArtists: [...artistMap.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, count]) => ({ name, count })),
+    topArtists: [...artistMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, count]) => ({ name, count })),
     popularitySpread: { low, mid, high },
   };
-}
-
-function getPopularityVerdict(avg: number): string {
-  if (avg >= 70) return 'Mainstream hunter — lubisz to, co popularne. Muzyka jako waluta społeczna.';
-  if (avg >= 50) return 'Zbalansowany odkrywca — mieszasz hity z mniej znanymi perełkami.';
-  if (avg >= 30) return 'Hipster soul — szukasz muzyki poza radarem. Cenisz autentyczność.';
-  return 'Undergroundowy archeolog — kopiesz głęboko. Muzyka to dla Ciebie odkrywanie.';
-}
-
-function getDiversityVerdict(uniqueArtists: number, trackCount: number): string {
-  const ratio = uniqueArtists / trackCount;
-  if (ratio > 0.8) return 'Kolekcjoner doświadczeń — rzadko wracasz do tego samego artysty. Ciekawość ponad lojalność.';
-  if (ratio > 0.5) return 'Zdrowa równowaga — masz ulubieńców, ale jesteś otwarty na nowe dźwięki.';
-  return 'Lojalista — budujesz głębokie relacje z wybranymi artystami. Przywiązanie emocjonalne do muzyki.';
-}
-
-function getExplicitVerdict(ratio: number): string {
-  if (ratio > 0.6) return 'Szukasz autentyczności i surowych emocji. Nie boisz się kontrowersji.';
-  if (ratio > 0.3) return 'Mix delikatności i surowości — różnorodna ekspresja emocjonalna.';
-  return 'Preferujesz łagodniejsze formy wyrazu. Harmonia ponad prowokację.';
-}
-
-function getEraVerdict(decades: { decade: string; count: number }[]): string {
-  if (decades.length === 0) return '';
-  const top = decades[0].decade;
-  if (top === '2020s') return 'Żyjesz chwilą obecną — Twoja muzyka to lustro współczesności.';
-  if (top === '2010s') return 'Złota era streamingu ukształtowała Twój gust muzyczny.';
-  if (top === '2000s') return 'Nostalgia za latami 2000. — formacyjne dźwięki Twojego pokolenia.';
-  return `Dusza vintage — ${top} to Twój muzyczny dom duchowy.`;
 }
 
 export default function PlaylistAnalysisScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
   const { getValidToken } = useAuth();
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [aiCommentary, setAiCommentary] = useState<string | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<DJPersonaId>(FREE_PERSONA);
   const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState('Pobieram utwory...');
   const [error, setError] = useState<string | null>(null);
 
@@ -134,40 +98,53 @@ export default function PlaylistAnalysisScreen() {
     setError(null);
     try {
       const token = await getValidToken();
-      if (!token) {
-        setError('Brak tokenu — zaloguj się ponownie.');
-        return;
-      }
+      if (!token) { setError('Brak tokenu — zaloguj się ponownie.'); return; }
 
       setLoadingStatus('Pobieram utwory...');
       const tracks = await getPlaylistTracks(token, id!);
-      if (tracks.length === 0) {
-        setError('Playlista jest pusta.');
-        return;
-      }
+      if (tracks.length === 0) { setError('Playlista jest pusta.'); return; }
 
       setLoadingStatus(`Analizuję ${tracks.length} utworów...`);
-
-      // Pobierz unikalne ID artystów
       const artistIds = [...new Set(tracks.flatMap((t) => t.artists.map((a) => a.id)))];
 
       setLoadingStatus(`Pobieram dane ${artistIds.length} artystów...`);
       const artists = await getArtists(token, artistIds);
-
-      // Mapa artyst ID → gatunki
       const genreMap = new Map<string, string[]>();
-      for (const a of artists) {
-        genreMap.set(a.id, a.genres);
-      }
+      for (const a of artists) genreMap.set(a.id, a.genres);
 
-      setLoadingStatus('Generuję profil psychologiczny...');
       const analysis = analyzeData(tracks, genreMap);
       setResult(analysis);
+
+      // Generuj AI commentary
+      setLoadingStatus('DJ Neuro analizuje Twoją psyche...');
+      await generateAiCommentary(analysis, FREE_PERSONA);
     } catch (err) {
       console.log('Analysis error:', err);
       setError('Błąd podczas analizy. Spróbuj ponownie.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function generateAiCommentary(data: AnalysisResult, persona: DJPersonaId) {
+    setAiLoading(true);
+    try {
+      const commentary = await generatePlaylistAnalysis(
+        { ...data, playlistName: name || 'Playlista' },
+        persona
+      );
+      setAiCommentary(commentary);
+    } catch (err) {
+      console.log('AI commentary error:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  async function switchPersona(persona: DJPersonaId) {
+    setSelectedPersona(persona);
+    if (result) {
+      await generateAiCommentary(result, persona);
     }
   }
 
@@ -191,12 +168,11 @@ export default function PlaylistAnalysisScreen() {
   }
 
   if (!result) return null;
-
   const maxGenreCount = result.topGenres[0]?.count || 1;
+  const persona = DJ_PERSONAS[selectedPersona];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.playlistName}>{name || 'Playlista'}</Text>
         <Text style={styles.trackCount}>
@@ -204,14 +180,45 @@ export default function PlaylistAnalysisScreen() {
         </Text>
       </View>
 
-      {/* Profil psychologiczny */}
-      <View style={styles.verdictCard}>
-        <Text style={styles.verdictEmoji}>{'\u{1F9E0}'}</Text>
-        <Text style={styles.verdictTitle}>Profil psychologiczny</Text>
-        <Text style={styles.verdictText}>{getPopularityVerdict(result.avgPopularity)}</Text>
+      {/* Wybór DJ persony */}
+      <Text style={styles.sectionTitle}>Wybierz DJ-a</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.personaScroll}>
+        {(Object.values(DJ_PERSONAS)).map((p) => (
+          <TouchableOpacity
+            key={p.id}
+            style={[
+              styles.personaChip,
+              selectedPersona === p.id && styles.personaChipActive,
+              selectedPersona === p.id && { borderColor: Colors[p.id as keyof typeof Colors] as string || Colors.primary },
+            ]}
+            onPress={() => switchPersona(p.id)}>
+            <Text style={styles.personaChipEmoji}>{p.emoji}</Text>
+            <Text style={[
+              styles.personaChipName,
+              selectedPersona === p.id && styles.personaChipNameActive,
+            ]}>{p.name}</Text>
+            {p.isPremium && <Text style={styles.proBadge}>PRO</Text>}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* AI Commentary */}
+      <View style={[styles.verdictCard, { borderColor: Colors[selectedPersona as keyof typeof Colors] as string || Colors.primary }]}>
+        <Text style={styles.verdictEmoji}>{persona.emoji}</Text>
+        <Text style={[styles.verdictTitle, { color: Colors[selectedPersona as keyof typeof Colors] as string || Colors.primary }]}>
+          {persona.name} mówi:
+        </Text>
+        {aiLoading ? (
+          <View style={styles.aiLoadingWrap}>
+            <ActivityIndicator size="small" color={Colors.textSecondary} />
+            <Text style={styles.aiLoadingText}>{persona.name} analizuje...</Text>
+          </View>
+        ) : (
+          <Text style={styles.verdictText}>{aiCommentary || 'Generuję analizę...'}</Text>
+        )}
       </View>
 
-      {/* Popularność */}
+      {/* Metryki */}
       <Text style={styles.sectionTitle}>Popularność utworów</Text>
       <View style={styles.metricCard}>
         <View style={styles.metricHeader}>
@@ -242,14 +249,6 @@ export default function PlaylistAnalysisScreen() {
         </View>
       </View>
 
-      {/* Diversity */}
-      <View style={styles.insightCard}>
-        <Text style={styles.insightTitle}>{'\u{1F3AD}'} Różnorodność</Text>
-        <Text style={styles.insightText}>
-          {getDiversityVerdict(result.uniqueArtists, result.trackCount)}
-        </Text>
-      </View>
-
       {/* Gatunki */}
       {result.topGenres.length > 0 && (
         <>
@@ -258,12 +257,7 @@ export default function PlaylistAnalysisScreen() {
             <View key={g.genre} style={styles.genreRow}>
               <Text style={styles.genreLabel} numberOfLines={1}>{g.genre}</Text>
               <View style={styles.genreBarBg}>
-                <View
-                  style={[
-                    styles.genreBarFill,
-                    { width: `${(g.count / maxGenreCount) * 100}%` },
-                  ]}
-                />
+                <View style={[styles.genreBarFill, { width: `${(g.count / maxGenreCount) * 100}%` }]} />
               </View>
               <Text style={styles.genreCount}>{g.count}</Text>
             </View>
@@ -293,10 +287,6 @@ export default function PlaylistAnalysisScreen() {
               </View>
             ))}
           </View>
-          <View style={styles.insightCard}>
-            <Text style={styles.insightTitle}>{'\u{23F3}'} Era</Text>
-            <Text style={styles.insightText}>{getEraVerdict(result.decades)}</Text>
-          </View>
         </>
       )}
 
@@ -313,10 +303,6 @@ export default function PlaylistAnalysisScreen() {
         <View style={styles.barBg}>
           <View style={[styles.barFill, { width: `${Math.round(result.explicitRatio * 100)}%`, backgroundColor: Colors.error }]} />
         </View>
-      </View>
-      <View style={styles.insightCard}>
-        <Text style={styles.insightTitle}>{'\u{1F3A4}'} Ekspresja</Text>
-        <Text style={styles.insightText}>{getExplicitVerdict(result.explicitRatio)}</Text>
       </View>
 
       {/* Średni czas */}
@@ -344,14 +330,31 @@ const styles = StyleSheet.create({
   header: { marginBottom: 20 },
   playlistName: { fontSize: 26, fontWeight: 'bold', color: Colors.text, marginBottom: 4 },
   trackCount: { fontSize: 14, color: Colors.textSecondary },
+  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.text, marginBottom: 14, marginTop: 10 },
+  // Persona selector
+  personaScroll: { marginBottom: 16 },
+  personaChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.surface, borderRadius: 20,
+    paddingVertical: 10, paddingHorizontal: 14, marginRight: 8,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  personaChipActive: { backgroundColor: Colors.accent, borderWidth: 2 },
+  personaChipEmoji: { fontSize: 18 },
+  personaChipName: { fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
+  personaChipNameActive: { color: Colors.text, fontWeight: '700' },
+  proBadge: { fontSize: 9, fontWeight: 'bold', color: Colors.highlight, backgroundColor: Colors.surface, borderRadius: 4, paddingHorizontal: 4, paddingVertical: 1, overflow: 'hidden' },
+  // AI verdict
   verdictCard: {
     backgroundColor: Colors.accent, borderRadius: 16, padding: 20,
-    alignItems: 'center', marginBottom: 24, borderWidth: 1, borderColor: Colors.primary,
+    alignItems: 'center', marginBottom: 24, borderWidth: 1,
   },
   verdictEmoji: { fontSize: 36, marginBottom: 8 },
-  verdictTitle: { fontSize: 18, fontWeight: 'bold', color: Colors.primary, marginBottom: 8 },
+  verdictTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
   verdictText: { fontSize: 15, color: Colors.text, textAlign: 'center', lineHeight: 22 },
-  sectionTitle: { fontSize: 20, fontWeight: 'bold', color: Colors.text, marginBottom: 14, marginTop: 10 },
+  aiLoadingWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  aiLoadingText: { fontSize: 14, color: Colors.textSecondary },
+  // Metrics
   metricCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 14, marginBottom: 10 },
   metricHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
   metricEmoji: { fontSize: 24 },
@@ -365,21 +368,14 @@ const styles = StyleSheet.create({
   spreadCard: { flex: 1, backgroundColor: Colors.surface, borderRadius: 10, padding: 12, alignItems: 'center' },
   spreadNumber: { fontSize: 20, fontWeight: 'bold', color: Colors.text },
   spreadLabel: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
-  genreRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginBottom: 8, paddingHorizontal: 4,
-  },
+  genreRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8, paddingHorizontal: 4 },
   genreLabel: { width: 110, fontSize: 13, color: Colors.text },
-  genreBarBg: {
-    flex: 1, height: 8, backgroundColor: Colors.surfaceLight,
-    borderRadius: 4, overflow: 'hidden',
-  },
+  genreBarBg: { flex: 1, height: 8, backgroundColor: Colors.surfaceLight, borderRadius: 4, overflow: 'hidden' },
   genreBarFill: { height: 8, borderRadius: 4, backgroundColor: Colors.secondary },
   genreCount: { width: 28, fontSize: 13, color: Colors.textSecondary, textAlign: 'right' },
   artistRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: 10, padding: 12,
-    marginBottom: 6, gap: 10,
+    backgroundColor: Colors.surface, borderRadius: 10, padding: 12, marginBottom: 6, gap: 10,
   },
   artistRank: { fontSize: 14, fontWeight: 'bold', color: Colors.primary, width: 28 },
   artistName: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.text },
@@ -391,9 +387,6 @@ const styles = StyleSheet.create({
   },
   decadeLabel: { fontSize: 14, fontWeight: '600', color: Colors.text },
   decadeCount: { fontSize: 14, color: Colors.textSecondary },
-  insightCard: { backgroundColor: Colors.surface, borderRadius: 12, padding: 16, marginBottom: 10 },
-  insightTitle: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 6 },
-  insightText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
   tempoCard: {
     backgroundColor: Colors.surface, borderRadius: 12, padding: 20,
     alignItems: 'center', marginTop: 6, marginBottom: 20,
