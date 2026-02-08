@@ -231,6 +231,70 @@ export async function getRecentlyPlayed(
 /**
  * Szuka utworu na Spotify — zwraca URI do odtworzenia.
  */
+/**
+ * Odtwórz listę utworów na aktywnym urządzeniu Spotify.
+ */
+export async function playTracks(
+  accessToken: string,
+  trackUris: string[]
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${SPOTIFY_API_BASE}/me/player/play`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ uris: trackUris }),
+    });
+    return res.ok || res.status === 204;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Dodaj utwór do kolejki na aktywnym urządzeniu.
+ */
+export async function addToQueue(
+  accessToken: string,
+  trackUri: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${SPOTIFY_API_BASE}/me/player/queue?uri=${encodeURIComponent(trackUri)}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    return res.ok || res.status === 204;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Przewiń do pozycji w aktualnie grającym utworze (ms).
+ */
+export async function seekToPosition(
+  accessToken: string,
+  positionMs: number
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${SPOTIFY_API_BASE}/me/player/seek?position_ms=${positionMs}`,
+      {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    return res.ok || res.status === 204;
+  } catch {
+    return false;
+  }
+}
+
 export async function searchTrack(
   accessToken: string,
   query: string

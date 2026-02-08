@@ -20,8 +20,8 @@ import { Colors } from '@/constants/Colors';
 import { DJ_PERSONAS, type DJPersonaId } from '@/constants/DJPersonas';
 import { sendDJChatMessage, type ChatMessage } from '@/services/claude';
 import { useAuth } from '@/contexts/AuthContext';
-import { getPlaylistSummaryForDJ, getRecentlyPlayed, searchTrack, createPlaylist } from '@/services/spotify';
-import { getUserProfile } from '@/services/spotify';
+import { getPlaylistSummaryForDJ, getRecentlyPlayed, searchTrack, createPlaylist, getUserProfile, playTracks, addToQueue } from '@/services/spotify';
+import { saveSession, loadSession, type ChatSession } from '@/services/chatHistory';
 
 interface DisplayMessage {
   id: string;
@@ -30,7 +30,7 @@ interface DisplayMessage {
 }
 
 export default function DJChatScreen() {
-  const { personaId } = useLocalSearchParams<{ personaId: string }>();
+  const { personaId, sessionId: existingSessionId } = useLocalSearchParams<{ personaId: string; sessionId?: string }>();
   const insets = useSafeAreaInsets();
   const persona = DJ_PERSONAS[personaId as DJPersonaId];
   const { getValidToken } = useAuth();
@@ -39,6 +39,8 @@ export default function DJChatScreen() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [spotifyContext, setSpotifyContext] = useState('');
+  const [creatingPlaylist, setCreatingPlaylist] = useState(false);
+  const [sessionId] = useState(() => existingSessionId || `session-${Date.now()}`);
   const scrollRef = useRef<ScrollView>(null);
 
   // Ładuj kontekst Spotify przy starcie czatu
@@ -74,8 +76,18 @@ export default function DJChatScreen() {
     loadSpotifyContext();
   }, []);
 
-  // Wiadomość powitalna od DJ-a
+  // Załaduj istniejącą sesję LUB pokaż powitanie
   useEffect(() => {
+    if (existingSessionId) {
+      const saved = loadSession(existingSessionId);
+      if (saved) {
+        setMessages(saved.messages);
+        console.log(`[DJ-CHAT] Loaded session ${existingSessionId} (${saved.messages.length} msgs)`);
+        return;
+      }
+    }
+
+    // Nowa sesja — wiadomość powitalna
     const greetings: Record<DJPersonaId, string> = {
       neurobiological: `Cześć! Jestem ${persona.name}. 🧬 Opowiedz mi jak się dziś czujesz — a powiem Ci, co Twój mózg próbuje Ci przekazać przez muzykę. Jaki masz teraz nastrój?`,
       freudian: `Witaj na mojej kozetce muzycznej. Jestem ${persona.name}. 🛋️ To nie przypadek, że tu jesteś... Opowiedz mi o swoim nastroju — co kryje się pod powierzchnią Twoich emocji?`,
@@ -94,6 +106,25 @@ export default function DJChatScreen() {
       ]);
     }
   }, [personaId]);
+
+  // Auto-save sesji po zmianie wiadomości
+  useEffect(() => {
+    if (messages.length <= 1) return; // Nie zapisuj samego powitania
+    const firstUserMsg = messages.find((m) => m.role === 'user');
+    const title = firstUserMsg
+      ? firstUserMsg.content.substring(0, 50) + (firstUserMsg.content.length > 50 ? '...' : '')
+      : 'Nowa sesja';
+
+    const session: ChatSession = {
+      id: sessionId,
+      personaId: personaId as DJPersonaId,
+      title,
+      messages,
+      createdAt: sessionId.replace('session-', ''),
+      updatedAt: new Date().toISOString(),
+    };
+    saveSession(session);
+  }, [messages]);
 
   async function handleSend() {
     const text = input.trim();
@@ -167,6 +198,8 @@ export default function DJChatScreen() {
 
   // Stwórz playlistę na Spotify z sugestiami DJ-a
   async function handleCreatePlaylist(playlistName: string, trackQueries: string[]) {
+    if (creatingPlaylist) return;
+    setCreatingPlaylist(true);
     try {
       const token = await getValidToken();
       if (!token) {
@@ -211,10 +244,12 @@ export default function DJChatScreen() {
     } catch (e) {
       console.log('[DJ-CHAT] Create playlist error:', e);
       Alert.alert('Błąd', 'Nie udało się utworzyć playlisty.');
+    } finally {
+      setCreatingPlaylist(false);
     }
   }
 
-  // Otwórz utwór w Spotify
+  // Odtwórz utwór — najpierw przez Spotify Connect API, potem fallback na deep link
   async function playInSpotify(query: string) {
     try {
       const token = await getValidToken();
@@ -223,23 +258,57 @@ export default function DJChatScreen() {
         return;
       }
       const result = await searchTrack(token, query);
-      if (result) {
-        // Próbuj otworzyć w apce Spotify, fallback na URL
-        const spotifyAppUrl = result.uri; // spotify:track:xxx
-        const canOpen = await Linking.canOpenURL(spotifyAppUrl);
-        if (canOpen) {
-          await Linking.openURL(spotifyAppUrl);
-        } else if (result.externalUrl) {
-          await Linking.openURL(result.externalUrl);
-        } else {
-          Alert.alert('Spotify', `Nie znaleziono: ${query}`);
-        }
-      } else {
+      if (!result) {
         Alert.alert('Spotify', `Nie znaleziono utworu: ${query}`);
+        return;
+      }
+
+      // Próbuj odpalić przez Connect API (bezpośrednio w Spotify bez przełączania apki)
+      const played = await playTracks(token, [result.uri]);
+      if (played) {
+        console.log(`[DJ-CHAT] Playing via Connect API: ${query}`);
+        return;
+      }
+
+      // Fallback: otwórz w apce Spotify
+      const canOpen = await Linking.canOpenURL(result.uri);
+      if (canOpen) {
+        await Linking.openURL(result.uri);
+      } else if (result.externalUrl) {
+        await Linking.openURL(result.externalUrl);
       }
     } catch (e) {
       console.log('[DJ-CHAT] Play error:', e);
       Alert.alert('Błąd', 'Nie udało się otworzyć Spotify.');
+    }
+  }
+
+  // Odtwórz cały set DJ-a (wszystkie sugestie naraz)
+  async function playDJSet(trackQueries: string[]) {
+    try {
+      const token = await getValidToken();
+      if (!token) return;
+
+      const uris: string[] = [];
+      for (const query of trackQueries) {
+        const result = await searchTrack(token, query);
+        if (result) uris.push(result.uri);
+      }
+
+      if (uris.length === 0) {
+        Alert.alert('Spotify', 'Nie znaleziono żadnych utworów.');
+        return;
+      }
+
+      const played = await playTracks(token, uris);
+      if (played) {
+        console.log(`[DJ-CHAT] Playing DJ set: ${uris.length} tracks`);
+      } else {
+        // Fallback — otwórz pierwszy utwór
+        await Linking.openURL(uris[0]);
+      }
+    } catch (e) {
+      console.log('[DJ-CHAT] DJ Set play error:', e);
     }
   }
 
@@ -300,6 +369,14 @@ export default function DJChatScreen() {
               </Text>
               {trackSuggestions.length > 0 && (
                 <View style={styles.trackButtons}>
+                  {trackSuggestions.length >= 2 && (
+                    <TouchableOpacity
+                      style={styles.playAllButton}
+                      onPress={() => playDJSet(trackSuggestions)}>
+                      <FontAwesome name="play-circle" size={16} color="#fff" />
+                      <Text style={styles.playAllText}>Odtwórz cały set ({trackSuggestions.length})</Text>
+                    </TouchableOpacity>
+                  )}
                   {trackSuggestions.map((track, i) => (
                     <TouchableOpacity
                       key={i}
@@ -313,11 +390,12 @@ export default function DJChatScreen() {
                   ))}
                   {playlistCmd && trackSuggestions.length >= 2 && (
                     <TouchableOpacity
-                      style={styles.createPlaylistButton}
-                      onPress={() => handleCreatePlaylist(playlistCmd, trackSuggestions)}>
-                      <FontAwesome name="plus-circle" size={16} color={Colors.primary} />
+                      style={[styles.createPlaylistButton, creatingPlaylist && { opacity: 0.5 }]}
+                      onPress={() => handleCreatePlaylist(playlistCmd, trackSuggestions)}
+                      disabled={creatingPlaylist}>
+                      <FontAwesome name={creatingPlaylist ? "spinner" : "plus-circle"} size={16} color={Colors.primary} />
                       <Text style={styles.createPlaylistText}>
-                        Stwórz playlistę "{playlistCmd}"
+                        {creatingPlaylist ? 'Tworzenie...' : `Stwórz playlistę "${playlistCmd}"`}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -481,6 +559,20 @@ const styles = StyleSheet.create({
   trackButtons: {
     marginTop: 10,
     gap: 6,
+  },
+  playAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.spotifyGreen,
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 8,
+  },
+  playAllText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   playButton: {
     flexDirection: 'row',
