@@ -68,6 +68,14 @@ export default function RootLayout() {
               headerTintColor: Colors.text,
             }}
           />
+          <Stack.Screen
+            name="session/[personaId]"
+            options={{
+              title: 'Sesja DJ',
+              headerStyle: { backgroundColor: Colors.surface },
+              headerTintColor: Colors.text,
+            }}
+          />
         </Stack>
       </ThemeProvider>
     </AuthProvider>

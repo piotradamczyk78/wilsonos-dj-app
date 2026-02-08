@@ -1,41 +1,55 @@
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { Colors } from '@/constants/Colors';
 import { DJ_PERSONAS } from '@/constants/DJPersonas';
 
 export default function SessionScreen() {
+  const router = useRouter();
+
+  function handlePersonaPress(personaId: string) {
+    router.push({ pathname: '/session/[personaId]', params: { personaId } });
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <Text style={styles.title}>Sesja DJ</Text>
         <Text style={styles.subtitle}>
-          Wybierz osobowo\u015b\u0107 DJ-a i rozpocznij emocjonaln\u0105 podr\u00f3\u017c muzyczn\u0105
+          Wybierz osobowość DJ-a i rozpocznij emocjonalną podróż muzyczną
         </Text>
       </View>
 
-      {Object.values(DJ_PERSONAS).map((persona) => (
-        <TouchableOpacity key={persona.id} style={styles.personaRow}>
-          <Text style={styles.personaEmoji}>{persona.emoji}</Text>
-          <View style={styles.personaInfo}>
-            <View style={styles.personaHeader}>
-              <Text style={styles.personaName}>{persona.name}</Text>
-              {persona.isPremium && (
-                <View style={styles.proBadge}>
-                  <Text style={styles.proText}>PRO</Text>
-                </View>
-              )}
+      {Object.values(DJ_PERSONAS).map((persona) => {
+        const personaColor = Colors[persona.id as keyof typeof Colors] || Colors.primary;
+        return (
+          <TouchableOpacity
+            key={persona.id}
+            style={[styles.personaRow, { borderLeftColor: personaColor as string, borderLeftWidth: 3 }]}
+            onPress={() => handlePersonaPress(persona.id)}
+            activeOpacity={0.7}>
+            <Text style={styles.personaEmoji}>{persona.emoji}</Text>
+            <View style={styles.personaInfo}>
+              <View style={styles.personaHeader}>
+                <Text style={styles.personaName}>{persona.name}</Text>
+                {persona.isPremium && (
+                  <View style={styles.proBadge}>
+                    <Text style={styles.proText}>PRO</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={styles.personaDesc}>{persona.description}</Text>
             </View>
-            <Text style={styles.personaDesc}>{persona.description}</Text>
-          </View>
-          <FontAwesome name="chevron-right" size={14} color={Colors.textMuted} />
-        </TouchableOpacity>
-      ))}
+            <FontAwesome name="chevron-right" size={14} color={Colors.textMuted} />
+          </TouchableOpacity>
+        );
+      })}
 
       <View style={styles.infoBox}>
         <FontAwesome name="info-circle" size={16} color={Colors.neurobiological} />
         <Text style={styles.infoText}>
-          DJ Neuro jest dost\u0119pny za darmo. Odblokuj wszystkich DJ-\u00f3w w wersji Premium.
+          Porozmawiaj z AI DJ-em o swoich emocjach i nastroju — otrzymasz psychologicznie dopasowane sugestie muzyczne.
         </Text>
       </View>
     </ScrollView>

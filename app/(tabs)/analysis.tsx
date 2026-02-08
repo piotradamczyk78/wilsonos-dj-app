@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
@@ -82,17 +82,13 @@ export default function AnalysisScreen() {
             key={playlist.id}
             style={styles.playlistCard}
             onPress={() => router.push({ pathname: '/analysis/[id]', params: { id: playlist.id, name: playlist.name } })}>
-            <View style={styles.playlistImage}>
-              {playlist.images?.[0] ? (
-                <View style={styles.playlistImagePlaceholder}>
-                  <FontAwesome name="music" size={20} color={Colors.textMuted} />
-                </View>
-              ) : (
-                <View style={styles.playlistImagePlaceholder}>
-                  <FontAwesome name="music" size={20} color={Colors.textMuted} />
-                </View>
-              )}
-            </View>
+            {playlist.images?.[0]?.url ? (
+              <Image source={{ uri: playlist.images[0].url }} style={styles.playlistCover} />
+            ) : (
+              <View style={styles.playlistImagePlaceholder}>
+                <FontAwesome name="music" size={20} color={Colors.textMuted} />
+              </View>
+            )}
             <View style={styles.playlistInfo}>
               <Text style={styles.playlistName} numberOfLines={1}>{playlist.name}</Text>
               <Text style={styles.playlistMeta}>{playlist.tracks.total} utworów</Text>
@@ -184,11 +180,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 14,
   },
-  playlistImage: {
+  playlistCover: {
     width: 48,
     height: 48,
     borderRadius: 8,
-    overflow: 'hidden',
   },
   playlistImagePlaceholder: {
     width: 48,

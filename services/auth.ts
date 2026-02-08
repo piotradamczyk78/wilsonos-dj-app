@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
 // Spotify credentials — docelowo przenieść do backend proxy (Supabase)
-export const SPOTIFY_CLIENT_ID = '627de7fd6310465c8ee7e61246637520';
+export const SPOTIFY_CLIENT_ID = process.env.EXPO_PUBLIC_SPOTIFY_CLIENT_ID ?? '';
 
 const KEYS = {
   ACCESS_TOKEN: 'spotify_access_token',

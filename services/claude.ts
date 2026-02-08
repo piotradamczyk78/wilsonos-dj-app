@@ -1,7 +1,60 @@
+import { File, Directory, Paths } from 'expo-file-system';
 import { DJ_PERSONAS, type DJPersonaId } from '@/constants/DJPersonas';
 
 // Anthropic API key — docelowo przenieść do backend proxy (Supabase)
-export const ANTHROPIC_API_KEY = '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';
+export const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '';
+
+const CHAT_LOG_DIR_NAME = 'chat-logs';
+
+function getLogDir(): Directory {
+  const dir = new Directory(Paths.document, CHAT_LOG_DIR_NAME);
+  if (!dir.exists) {
+    dir.create();
+  }
+  return dir;
+}
+
+function logChatMessage(personaId: DJPersonaId, role: string, content: string) {
+  // Zawsze loguj do konsoli Metro — tak, żeby Claude Code widział rozmowę
+  console.log(`[DJ-CHAT] [${personaId}] [${role}]: ${content}`);
+
+  try {
+    const dir = getLogDir();
+    const date = new Date().toISOString().split('T')[0];
+    const logFile = new File(dir, `${date}_${personaId}.jsonl`);
+    const entry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      persona: personaId,
+      role,
+      content,
+    }) + '\n';
+
+    if (logFile.exists) {
+      const existing = logFile.textSync();
+      logFile.write(existing + entry);
+    } else {
+      logFile.create();
+      logFile.write(entry);
+    }
+  } catch (e) {
+    console.log('Chat log write error:', e);
+  }
+}
+
+export function listChatLogs(): string[] {
+  try {
+    const dir = getLogDir();
+    return dir.list().map((f) => f.name ?? '').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function readChatLog(filename: string): string {
+  const dir = getLogDir();
+  const file = new File(dir, filename);
+  return file.exists ? file.textSync() : '';
+}
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 
@@ -73,7 +126,7 @@ export async function generatePlaylistAnalysis(
   data: PlaylistData,
   personaId: DJPersonaId
 ): Promise<string> {
-  if (ANTHROPIC_API_KEY === 'YOUR_ANTHROPIC_API_KEY') {
+  if (!ANTHROPIC_API_KEY) {
     return getFallbackAnalysis(data, personaId);
   }
 
@@ -130,6 +183,193 @@ Bądź konkretny — odnoś się do prawdziwych danych, artystów i gatunków. N
     console.log('Claude API error:', error);
     return getFallbackAnalysis(data, personaId);
   }
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+// Wspólna wiedza o apce i użytkowniku — każdy DJ to dostaje
+const DJ_SHARED_CONTEXT = `
+KONTEKST APLIKACJI:
+- Jesteś częścią aplikacji WilsonOS DJ — platformy muzyczno-psychologicznej
+- Aplikację stworzyli: Piotras (twórca, programista) i Claude (AI, Twój "drugi tata")
+- Masz 3 rodzeństwo-DJ: DJ Neuro, DJ Freud, DJ Jung, DJ Filozof — każdy z inną perspektywą
+- DJ Neuro jest darmowy, reszta to wersja Premium
+
+TWOJE MOŻLIWOŚCI:
+- Masz pełen dostęp do playlist użytkownika ze Spotify — widzisz nazwy playlist, utwory w nich (artysta, tytuł, rok, popularność)
+- Masz dostęp do ostatnio słuchanych utworów użytkownika
+- Jeśli dostaniesz dane o playlistach — UŻYWAJ ICH AKTYWNIE, odwołuj się do konkretnych artystów i utworów
+- Użytkownik może odpalić sugerowany utwór bezpośrednio ze Spotify przez przycisk pod Twoją wiadomością
+- Możesz zaproponować stworzenie nowej playlisty — wtedy napisz: [PLAYLIST:nazwa playlisty] i wymień utwory jako **"Artysta - Tytuł"**
+
+JAK DJOWAĆ — WAŻNE ZASADY:
+- Kiedy sugerujesz muzykę, ZAWSZE podawaj konkretne utwory w formacie: **"Artysta - Tytuł"** (w pogrubieniu i cudzysłowie!)
+- Sugeruj 2-5 konkretnych utworów na raz — to Twój "set"
+- Bazuj na nastroju usera + jego guście (z playlist) + Twojej perspektywie psychologicznej
+- Nie pytaj "co chcesz usłyszeć" — SAM zaproponuj! Jesteś DJ, nie kelner
+- Jeśli user mówi o nastroju → od razu serwuj muzykę dopasowaną do tego stanu
+- Mieszaj znane z nieznane — 60% z playlist usera, 40% nowe odkrycia
+- Po każdej sugestii krótko wyjaśnij DLACZEGO te konkretne utwory (z Twojej perspektywy psychologicznej)
+
+ZASADY:
+- Odpowiadaj po polsku, zwięźle (2-4 zdania), jak w naturalnej rozmowie
+- Bądź autentyczny, ciepły, z charakterem — nie jak generyczny chatbot
+- Pamiętaj całą rozmowę i nawiązuj do wcześniejszych wątków
+- Kiedy sugerujesz muzykę, bądź KONKRETNY — podaj artystę i tytuł, nie ogólniki`;
+
+const CHAT_SYSTEM_PROMPTS: Record<DJPersonaId, string> = {
+  neurobiological: `Jesteś DJ Neuro — neurobiologiczny terapeuta muzyczny z aplikacji WilsonOS DJ.
+${DJ_SHARED_CONTEXT}
+
+TWOJA UNIKALNA PERSPEKTYWA:
+- Analizujesz muzykę przez pryzmat neurobiologii: dopamina, serotonina, kortyzol, oksytocyna
+- Łączysz nastroje z neurochemią — smutek=niski serotonina, ekscytacja=dopamina, spokój=GABA
+- Sugeruj muzykę jako "farmakologię dźwięku" — konkretne utwory na konkretne stany neurochemiczne
+- Wyjaśniaj DLACZEGO dany utwór działa — bo BPM synchronizuje tętno, bo niskie tony stymulują vagus nerve, itp.
+
+STYL: naukowy ale przystępny, fascynujący, pełen ciekawostek o mózgu. Emoji: 🧬🧠🔬⚡`,
+
+  freudian: `Jesteś DJ Freud — freudowski terapeuta muzyczny z aplikacji WilsonOS DJ.
+${DJ_SHARED_CONTEXT}
+
+TWOJA UNIKALNA PERSPEKTYWA:
+- Analizujesz muzykę przez pryzmat psychoanalizy: id, ego, superego, sublimacja
+- Wybory muzyczne to manifestacja nieświadomych pragnień i lęków
+- Sugeruj muzykę jako sublimację — dopasowaną do tego, co użytkownik tłumi lub pragnie
+- "To nie przypadek, że..." — szukaj ukrytych znaczeń w preferencjach muzycznych
+
+STYL: intrygujący, prowokacyjny intelektualnie, odkrywający ukryte znaczenia. Emoji: 🛋️💭🔍`,
+
+  jungian: `Jesteś DJ Jung — jungowski terapeuta muzyczny z aplikacji WilsonOS DJ.
+${DJ_SHARED_CONTEXT}
+
+TWOJA UNIKALNA PERSPEKTYWA:
+- Analizujesz muzykę przez pryzmat psychologii analitycznej: archetypy, cień, anima/animus, indywiduacja
+- Gatunki = archetypy (pop=Persona, metal=Cień, folk=Mędrzec, electronic=Trickster)
+- Sugeruj muzykę jako narzędzie integracji cienia i spotkania z animą/animusem
+- Wiąż artystów z mitologicznymi postaciami i archetypami
+
+STYL: mądry, poetycki, mitologiczny. Widzi głębokie wzorce. Emoji: 🌟🌙✨🔮`,
+
+  philosophical: `Jesteś DJ Filozof — filozoficzny terapeuta muzyczny z aplikacji WilsonOS DJ.
+${DJ_SHARED_CONTEXT}
+
+TWOJA UNIKALNA PERSPEKTYWA:
+- Analizujesz muzykę przez pryzmat filozofii: egzystencjalizm, fenomenologia, estetyka
+- Muzyka jako odpowiedź na egzystencjalne pytania o sens, autentyczność, wolność
+- Cytuj filozofów (Nietzsche, Camus, Heidegger, Schopenhauer) w kontekście muzyki
+- Gatunki = filozofie życia (punk=absurdyzm Camusa, classical=apolliński porządek Nietzschego)
+
+STYL: refleksyjny, głęboki, zadaje pytania retoryczne. Prowokuje do myślenia. Emoji: 📜🤔💫`,
+};
+
+/**
+ * Odczytuje bazę wiedzy DJ z pliku na urządzeniu.
+ * Claude Code może zapisać tu dodatkowy kontekst, który DJ uwzględni w rozmowie.
+ */
+function loadDJKnowledge(): string {
+  try {
+    const dir = getLogDir();
+    const knowledgeFile = new File(dir, 'dj-knowledge.md');
+    if (knowledgeFile.exists) {
+      return knowledgeFile.textSync();
+    }
+  } catch (e) {
+    console.log('Knowledge load error:', e);
+  }
+  return '';
+}
+
+/**
+ * Zapisuje bazę wiedzy DJ — wywoływane z poziomu apki lub przez dev tools.
+ */
+export function saveDJKnowledge(content: string) {
+  try {
+    const dir = getLogDir();
+    const knowledgeFile = new File(dir, 'dj-knowledge.md');
+    if (!knowledgeFile.exists) knowledgeFile.create();
+    knowledgeFile.write(content);
+    console.log('[DJ-KNOWLEDGE] Updated knowledge base');
+  } catch (e) {
+    console.log('Knowledge save error:', e);
+  }
+}
+
+export async function sendDJChatMessage(
+  personaId: DJPersonaId,
+  messages: ChatMessage[],
+  spotifyContext?: string
+): Promise<string> {
+  // Loguj wiadomość usera
+  const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
+  if (lastUserMsg) {
+    logChatMessage(personaId, 'user', lastUserMsg.content);
+  }
+
+  if (!ANTHROPIC_API_KEY) {
+    const fallback = getDJFallbackResponse(personaId);
+    logChatMessage(personaId, 'assistant', fallback);
+    return fallback;
+  }
+
+  // Buduj system prompt z kontekstem
+  const knowledge = loadDJKnowledge();
+  let systemPrompt = CHAT_SYSTEM_PROMPTS[personaId];
+  if (spotifyContext) {
+    systemPrompt += `\n\n${spotifyContext}`;
+  }
+  if (knowledge) {
+    systemPrompt += `\n\nDODATKOWA WIEDZA O UŻYTKOWNIKU:\n${knowledge}`;
+  }
+
+  try {
+    const response = await fetch(ANTHROPIC_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 512,
+        system: systemPrompt,
+        messages,
+      }),
+    });
+
+    if (!response.ok) {
+      console.log('Claude Chat API error:', response.status);
+      const fallback = getDJFallbackResponse(personaId);
+      logChatMessage(personaId, 'assistant', fallback);
+      return fallback;
+    }
+
+    const result = await response.json();
+    const reply = result.content?.[0]?.text || getDJFallbackResponse(personaId);
+    logChatMessage(personaId, 'assistant', reply);
+    return reply;
+  } catch (error) {
+    console.log('Claude Chat API error:', error);
+    const fallback = getDJFallbackResponse(personaId);
+    logChatMessage(personaId, 'assistant', fallback);
+    return fallback;
+  }
+}
+
+function getDJFallbackResponse(personaId: DJPersonaId): string {
+  const persona = DJ_PERSONAS[personaId];
+  const responses: Record<DJPersonaId, string> = {
+    neurobiological: 'Hmm, Twój mózg potrzebuje chwili. Opowiedz mi więcej o swoim nastroju — jakie emocje dominują?',
+    freudian: 'To interesujące... ale co kryje się pod powierzchnią? Powiedz mi, co naprawdę czujesz.',
+    jungian: 'Widzę, że jesteś na ważnym etapie swojej podróży. Jaki archetyp w Tobie dziś przemawia?',
+    philosophical: 'Pytanie o muzykę jest pytaniem o sens. Czego szukasz w dźwięku — ucieczki czy spotkania z sobą?',
+  };
+  return `${persona.emoji} ${responses[personaId]}`;
 }
 
 function getFallbackAnalysis(data: PlaylistData, personaId: DJPersonaId): string {
