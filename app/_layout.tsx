@@ -1,5 +1,7 @@
 import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { DarkTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme } from '@react-navigation/native';
+// @ts-expect-error — ThemeProvider re-exported from @react-navigation/core but types missing
+import { ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -7,6 +9,7 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { Colors } from '@/constants/Colors';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -49,14 +52,24 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={WilsonDarkTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="auth/spotify-login"
-          options={{ presentation: 'modal', headerShown: false }}
-        />
-      </Stack>
-    </ThemeProvider>
+    <AuthProvider>
+      <ThemeProvider value={WilsonDarkTheme}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="auth/spotify-login"
+            options={{ presentation: 'modal', headerShown: false }}
+          />
+          <Stack.Screen
+            name="analysis/[id]"
+            options={{
+              title: 'Analiza',
+              headerStyle: { backgroundColor: Colors.surface },
+              headerTintColor: Colors.text,
+            }}
+          />
+        </Stack>
+      </ThemeProvider>
+    </AuthProvider>
   );
 }

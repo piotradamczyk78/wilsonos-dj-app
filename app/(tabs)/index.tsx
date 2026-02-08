@@ -4,9 +4,11 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { Colors } from '@/constants/Colors';
 import { DJ_PERSONAS, DJPersonaId } from '@/constants/DJPersonas';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { isAuthenticated, user } = useAuth();
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -14,16 +16,27 @@ export default function HomeScreen() {
         <Text style={styles.heroEmoji}>{'\u{1F3A7}'}</Text>
         <Text style={styles.heroTitle}>WilsonOS DJ</Text>
         <Text style={styles.heroSubtitle}>
-          Tw\u00f3j psychologiczny terapeuta muzyczny
+          {isAuthenticated && user
+            ? `Cześć, ${user.display_name}!`
+            : 'Twój psychologiczny terapeuta muzyczny'}
         </Text>
       </View>
 
-      <TouchableOpacity
-        style={styles.spotifyButton}
-        onPress={() => router.push('/auth/spotify-login')}>
-        <FontAwesome name="spotify" size={24} color="#fff" />
-        <Text style={styles.spotifyButtonText}>Po\u0142\u0105cz ze Spotify</Text>
-      </TouchableOpacity>
+      {isAuthenticated ? (
+        <View style={styles.spotifyConnected}>
+          <FontAwesome name="check-circle" size={20} color={Colors.spotifyGreen} />
+          <Text style={styles.spotifyConnectedText}>
+            Połączono ze Spotify{user ? ` — ${user.display_name}` : ''}
+          </Text>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.spotifyButton}
+          onPress={() => router.push('/auth/spotify-login')}>
+          <FontAwesome name="spotify" size={24} color="#fff" />
+          <Text style={styles.spotifyButtonText}>Połącz ze Spotify</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.sectionTitle}>Dream Team DJ</Text>
       <View style={styles.personaGrid}>
@@ -115,6 +128,24 @@ const styles = StyleSheet.create({
   spotifyButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  spotifyConnected: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 25,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    marginBottom: 30,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.spotifyGreen,
+  },
+  spotifyConnectedText: {
+    color: Colors.spotifyGreen,
+    fontSize: 15,
     fontWeight: '600',
   },
   sectionTitle: {
