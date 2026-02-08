@@ -22,6 +22,8 @@ import { sendDJChatMessage, type ChatMessage } from '@/services/claude';
 import { useAuth } from '@/contexts/AuthContext';
 import { getPlaylistSummaryForDJ, getRecentlyPlayed, searchTrack, createPlaylist, getUserProfile, playTracks, addToQueue } from '@/services/spotify';
 import { saveSession, loadSession, type ChatSession } from '@/services/chatHistory';
+import { pickAudioFile } from '@/services/filePicker';
+import { loadAndPlay, togglePlayPause, stop, subscribe, type PlaybackState } from '@/services/audioPlayer';
 
 interface DisplayMessage {
   id: string;
@@ -41,7 +43,37 @@ export default function DJChatScreen() {
   const [spotifyContext, setSpotifyContext] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [sessionId] = useState(() => existingSessionId || `session-${Date.now()}`);
+  const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Subskrybuj stan audio playera
+  useEffect(() => {
+    const unsub = subscribe((state) => {
+      setPlayback(state.isLoaded ? state : null);
+    });
+    return unsub;
+  }, []);
+
+  // Otwórz picker plików audio
+  async function handlePickAudio() {
+    try {
+      const track = await pickAudioFile();
+      if (!track) return;
+
+      await loadAndPlay(track);
+
+      // Dodaj wiadomość do czatu
+      const userMsg: DisplayMessage = {
+        id: `audio-${Date.now()}`,
+        role: 'user',
+        content: `Słucham teraz: ${track.name}`,
+      };
+      setMessages((prev) => [...prev, userMsg]);
+    } catch (e) {
+      console.log('[DJ-CHAT] Audio pick error:', e);
+      Alert.alert('Błąd', 'Nie udało się otworzyć pliku audio.');
+    }
+  }
 
   // Ładuj kontekst Spotify przy starcie czatu
   useEffect(() => {
@@ -430,8 +462,45 @@ export default function DJChatScreen() {
         )}
       </ScrollView>
 
+      {/* Mini Player */}
+      {playback && (
+        <View style={styles.miniPlayer}>
+          <TouchableOpacity style={styles.miniPlayBtn} onPress={togglePlayPause}>
+            <FontAwesome
+              name={playback.isPlaying ? 'pause' : 'play'}
+              size={16}
+              color="#fff"
+            />
+          </TouchableOpacity>
+          <View style={styles.miniTrackInfo}>
+            <Text style={styles.miniTrackName} numberOfLines={1}>
+              {playback.track?.name ?? 'Nieznany utwór'}
+            </Text>
+            <View style={styles.miniProgressBar}>
+              <View
+                style={[
+                  styles.miniProgressFill,
+                  {
+                    width: playback.durationMs > 0
+                      ? `${(playback.positionMs / playback.durationMs) * 100}%`
+                      : '0%',
+                    backgroundColor: personaColor as string,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+          <TouchableOpacity style={styles.miniCloseBtn} onPress={stop}>
+            <FontAwesome name="close" size={14} color={Colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Input */}
       <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+        <TouchableOpacity style={styles.pickAudioButton} onPress={handlePickAudio}>
+          <FontAwesome name="music" size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={input}
@@ -631,5 +700,57 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     flex: 1,
+  },
+  pickAudioButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.surfaceLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniPlayer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    gap: 10,
+  },
+  miniPlayBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniTrackInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  miniTrackName: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  miniProgressBar: {
+    height: 3,
+    backgroundColor: Colors.surfaceLight,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  miniProgressFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  miniCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
