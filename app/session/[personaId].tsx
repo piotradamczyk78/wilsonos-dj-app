@@ -312,6 +312,15 @@ export default function DJChatScreen() {
     }
   }
 
+  // Odtwórz na YouTube (otwiera wyszukiwanie YT)
+  function playOnYouTube(query: string) {
+    const encoded = encodeURIComponent(query);
+    // Próbuj YouTube Music deep link, fallback na przeglądarkę
+    Linking.openURL(`https://music.youtube.com/search?q=${encoded}`).catch(() => {
+      Linking.openURL(`https://www.youtube.com/results?search_query=${encoded}`);
+    });
+  }
+
   // Auto-scroll po nowej wiadomości
   useEffect(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -378,15 +387,21 @@ export default function DJChatScreen() {
                     </TouchableOpacity>
                   )}
                   {trackSuggestions.map((track, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      style={styles.playButton}
-                      onPress={() => playInSpotify(track)}>
-                      <FontAwesome name="spotify" size={14} color={Colors.spotifyGreen} />
-                      <Text style={styles.playButtonText} numberOfLines={1}>
-                        {track}
-                      </Text>
-                    </TouchableOpacity>
+                    <View key={i} style={styles.trackRow}>
+                      <Text style={styles.trackName} numberOfLines={1}>{track}</Text>
+                      <View style={styles.trackActions}>
+                        <TouchableOpacity
+                          style={styles.playButtonSmall}
+                          onPress={() => playInSpotify(track)}>
+                          <FontAwesome name="spotify" size={16} color={Colors.spotifyGreen} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.playButtonSmall}
+                          onPress={() => playOnYouTube(track)}>
+                          <FontAwesome name="youtube-play" size={16} color="#FF0000" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   ))}
                   {playlistCmd && trackSuggestions.length >= 2 && (
                     <TouchableOpacity
@@ -574,20 +589,32 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  playButton: {
+  trackRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.surfaceLight,
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
     gap: 8,
   },
-  playButtonText: {
-    color: Colors.spotifyGreen,
-    fontSize: 13,
-    fontWeight: '600',
+  trackName: {
     flex: 1,
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  trackActions: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  playButtonSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   createPlaylistButton: {
     flexDirection: 'row',
