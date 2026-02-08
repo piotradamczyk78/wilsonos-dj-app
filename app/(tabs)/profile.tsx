@@ -1,24 +1,57 @@
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 
 import { Colors } from '@/constants/Colors';
+import { useAuth } from '@/contexts/AuthContext';
 
 export default function ProfileScreen() {
+  const router = useRouter();
+  const { isAuthenticated, user, logout } = useAuth();
+
+  const avatarUrl = user?.images?.[0]?.url;
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Wylogowanie',
+      'Czy na pewno chcesz odłączyć konto Spotify?',
+      [
+        { text: 'Anuluj', style: 'cancel' },
+        {
+          text: 'Wyloguj',
+          style: 'destructive',
+          onPress: () => logout(),
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.header}>
-        <View style={styles.avatar}>
-          <FontAwesome name="user" size={32} color={Colors.textMuted} />
-        </View>
-        <Text style={styles.name}>Wilson DJ User</Text>
-        <Text style={styles.plan}>Plan: Free</Text>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+        ) : (
+          <View style={styles.avatar}>
+            <FontAwesome name="user" size={32} color={Colors.textMuted} />
+          </View>
+        )}
+        <Text style={styles.name}>
+          {user?.display_name || 'Wilson DJ User'}
+        </Text>
+        {isAuthenticated && user?.email && (
+          <Text style={styles.email}>{user.email}</Text>
+        )}
+        <Text style={styles.plan}>
+          Plan: {user?.product === 'premium' ? 'Spotify Premium' : 'Free'}
+        </Text>
       </View>
 
       <TouchableOpacity style={styles.premiumCard}>
         <View>
           <Text style={styles.premiumTitle}>{'\u{1F451}'} Odblokuj Premium</Text>
           <Text style={styles.premiumDesc}>
-            4 osobowo\u015bci AI DJ, nielimitowane analizy, pe\u0142ne sesje
+            4 osobowości AI DJ, nielimitowane analizy, pełne sesje
           </Text>
         </View>
         <FontAwesome name="chevron-right" size={16} color={Colors.highlight} />
@@ -41,11 +74,21 @@ export default function ProfileScreen() {
       </View>
 
       <Text style={styles.sectionTitle}>Ustawienia</Text>
-      <TouchableOpacity style={styles.menuItem}>
-        <FontAwesome name="spotify" size={18} color={Colors.spotifyGreen} />
-        <Text style={styles.menuText}>Konto Spotify</Text>
-        <Text style={styles.menuStatus}>Nie po\u0142\u0105czono</Text>
-      </TouchableOpacity>
+      {isAuthenticated ? (
+        <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+          <FontAwesome name="spotify" size={18} color={Colors.spotifyGreen} />
+          <Text style={styles.menuText}>Konto Spotify</Text>
+          <Text style={[styles.menuStatus, { color: Colors.spotifyGreen }]}>Połączono</Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push('/auth/spotify-login')}>
+          <FontAwesome name="spotify" size={18} color={Colors.spotifyGreen} />
+          <Text style={styles.menuText}>Konto Spotify</Text>
+          <Text style={styles.menuStatus}>Nie połączono</Text>
+        </TouchableOpacity>
+      )}
       <TouchableOpacity style={styles.menuItem}>
         <FontAwesome name="bell" size={18} color={Colors.textSecondary} />
         <Text style={styles.menuText}>Powiadomienia</Text>
@@ -56,6 +99,13 @@ export default function ProfileScreen() {
         <Text style={styles.menuText}>O aplikacji</Text>
         <FontAwesome name="chevron-right" size={12} color={Colors.textMuted} />
       </TouchableOpacity>
+
+      {isAuthenticated && (
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <FontAwesome name="sign-out" size={18} color={Colors.error} />
+          <Text style={styles.logoutText}>Wyloguj ze Spotify</Text>
+        </TouchableOpacity>
+      )}
 
       <Text style={styles.version}>WilsonOS DJ v1.0.0</Text>
       <Text style={styles.copyright}>octadecimal.pl</Text>
@@ -86,10 +136,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 12,
   },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    marginBottom: 12,
+  },
   name: {
     fontSize: 20,
     fontWeight: 'bold',
     color: Colors.text,
+  },
+  email: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
   plan: {
     fontSize: 14,
@@ -162,6 +223,23 @@ const styles = StyleSheet.create({
   menuStatus: {
     fontSize: 13,
     color: Colors.textMuted,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.error,
+  },
+  logoutText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.error,
   },
   version: {
     textAlign: 'center',

@@ -12,9 +12,15 @@ export interface SpotifyPlaylist {
 export interface SpotifyTrack {
   id: string;
   name: string;
-  artists: { name: string }[];
-  album: { name: string; images: { url: string }[] };
+  artists: { id: string; name: string }[];
+  album: {
+    name: string;
+    images: { url: string }[];
+    release_date: string;
+  };
   duration_ms: number;
+  popularity: number;
+  explicit: boolean;
 }
 
 export interface AudioFeatures {
@@ -75,6 +81,33 @@ export async function getAudioFeatures(
       accessToken
     );
     results.push(...(data.audio_features || []).filter(Boolean));
+  }
+  return results;
+}
+
+export interface SpotifyArtist {
+  id: string;
+  name: string;
+  genres: string[];
+  popularity: number;
+}
+
+export async function getArtists(
+  accessToken: string,
+  artistIds: string[]
+): Promise<SpotifyArtist[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < artistIds.length; i += 50) {
+    chunks.push(artistIds.slice(i, i + 50));
+  }
+
+  const results: SpotifyArtist[] = [];
+  for (const chunk of chunks) {
+    const data = await spotifyFetch(
+      `/artists?ids=${chunk.join(',')}`,
+      accessToken
+    );
+    results.push(...(data.artists || []).filter(Boolean));
   }
   return results;
 }
