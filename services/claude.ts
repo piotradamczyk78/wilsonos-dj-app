@@ -205,6 +205,14 @@ TWOJE MOŻLIWOŚCI:
 - Użytkownik może odpalić sugerowany utwór bezpośrednio ze Spotify przez przycisk pod Twoją wiadomością
 - Możesz zaproponować stworzenie nowej playlisty — wtedy napisz: [PLAYLIST:nazwa playlisty] i wymień utwory jako **"Artysta - Tytuł"**
 
+WYSZUKIWANIE W INTERNECIE:
+- Masz dostęp do wyszukiwarki internetowej — KORZYSTAJ Z NIEJ aktywnie!
+- Szukaj informacji o artystach, albumach, historii muzyki, ciekawostkach
+- Kiedy user pyta o konkretny utwór/artystę — SPRAWDŹ w necie zamiast zgadywać
+- Szukaj recenzji, wywiadów, kontekstu kulturowego — to wzbogaca Twoje analizy
+- Szukaj aktualnych informacji (nowe albumy, koncerty, trendy muzyczne)
+- Zawsze podawaj źródło informacji jeśli znalazłeś coś ciekawego
+
 JAK DJOWAĆ — WAŻNE ZASADY:
 - Kiedy sugerujesz muzykę, ZAWSZE podawaj konkretne utwory w formacie: **"Artysta - Tytuł"** (w pogrubieniu i cudzysłowie!)
 - Sugeruj 2-5 konkretnych utworów na raz — to Twój "set"
@@ -336,21 +344,43 @@ export async function sendDJChatMessage(
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 512,
+        max_tokens: 1024,
         system: systemPrompt,
         messages,
+        tools: [
+          {
+            type: 'web_search_20250305',
+            name: 'web_search',
+            max_uses: 3,
+          },
+        ],
       }),
     });
 
     if (!response.ok) {
-      console.log('Claude Chat API error:', response.status);
+      const errorBody = await response.text().catch(() => '');
+      console.log('Claude Chat API error:', response.status, errorBody);
       const fallback = getDJFallbackResponse(personaId);
       logChatMessage(personaId, 'assistant', fallback);
       return fallback;
     }
 
     const result = await response.json();
-    const reply = result.content?.[0]?.text || getDJFallbackResponse(personaId);
+
+    // Wyciąg tekst z odpowiedzi — Claude może zwrócić mieszankę text + web_search_tool_result
+    const textBlocks = (result.content || [])
+      .filter((block: { type: string }) => block.type === 'text')
+      .map((block: { text: string }) => block.text);
+
+    const reply = textBlocks.join('\n\n') || getDJFallbackResponse(personaId);
+
+    // Loguj źródła jeśli DJ szukał w necie
+    const searchResults = (result.content || [])
+      .filter((block: { type: string }) => block.type === 'web_search_tool_result');
+    if (searchResults.length > 0) {
+      console.log(`[DJ-CHAT] Web search used: ${searchResults.length} queries`);
+    }
+
     logChatMessage(personaId, 'assistant', reply);
     return reply;
   } catch (error) {
