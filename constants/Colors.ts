@@ -3,6 +3,7 @@ export const Colors = {
   surface: '#1a1a2e',
   surfaceLight: '#16213e',
   card: '#1a1a2e',
+  cardBg: '#1a1a2e', // Alias for card
   text: '#eaeaea',
   textSecondary: '#8892b0',
   textMuted: '#5a6080',
@@ -19,4 +20,13 @@ export const Colors = {
   warning: '#ffd166',
   error: '#ef476f',
   border: '#2a2a4a',
+  // For dark theme compatibility
+  dark: {
+    background: '#0a0a0a',
+    cardBg: '#1a1a2e',
+    text: '#eaeaea',
+    textSecondary: '#8892b0',
+    primary: '#e94560',
+    border: '#2a2a4a',
+  },
 };
