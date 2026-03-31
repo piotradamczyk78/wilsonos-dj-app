@@ -3,18 +3,7 @@
  * Handles Google Play consumable products for credits
  */
 
-import {
-  initConnection,
-  endConnection,
-  getProducts,
-  requestPurchase,
-  finishTransaction,
-  purchaseUpdatedListener,
-  purchaseErrorListener,
-  type ProductPurchase,
-  type Subscription,
-} from 'react-native-iap';
-import { Platform } from 'react-native';
+import * as RNIap from 'react-native-iap';
 
 // Product IDs configured in Google Play Console
 export const PRODUCT_IDS = {
@@ -38,16 +27,12 @@ export interface CreditProduct {
   badge?: string;
 }
 
-let purchaseUpdateSubscription: Subscription | null = null;
-let purchaseErrorSubscription: Subscription | null = null;
+let purchaseUpdateSubscription: any = null;
+let purchaseErrorSubscription: any = null;
 
-/**
- * Initialize IAP connection
- * Call this on app start or before showing buy screen
- */
 export async function initIAP(): Promise<void> {
   try {
-    await initConnection();
+    await RNIap.initConnection();
     console.log('[IAP] Connection initialized');
   } catch (error) {
     console.error('[IAP] Init error:', error);
@@ -55,13 +40,9 @@ export async function initIAP(): Promise<void> {
   }
 }
 
-/**
- * End IAP connection
- * Call this on app unmount
- */
 export async function disconnectIAP(): Promise<void> {
   try {
-    await endConnection();
+    await RNIap.endConnection();
     if (purchaseUpdateSubscription) {
       purchaseUpdateSubscription.remove();
       purchaseUpdateSubscription = null;
@@ -76,14 +57,11 @@ export async function disconnectIAP(): Promise<void> {
   }
 }
 
-/**
- * Fetch available products from Google Play
- */
 export async function fetchProducts(): Promise<CreditProduct[]> {
   try {
-    const products = await getProducts({ skus: Object.values(PRODUCT_IDS) });
+    const products = await (RNIap as any).getProducts({ skus: Object.values(PRODUCT_IDS) });
 
-    return products.map((product) => ({
+    return products.map((product: any) => ({
       productId: product.productId,
       title: product.title,
       description: product.description,
@@ -97,33 +75,24 @@ export async function fetchProducts(): Promise<CreditProduct[]> {
   }
 }
 
-/**
- * Purchase credits
- */
 export async function purchaseCredits(
   productId: string,
   onSuccess: (credits: number) => void,
   onError: (error: Error) => void
 ): Promise<void> {
   try {
-    // Setup listeners
-    purchaseUpdateSubscription = purchaseUpdatedListener(async (purchase: ProductPurchase) => {
+    purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(async (purchase: any) => {
       console.log('[IAP] Purchase update:', purchase);
 
       if (purchase.productId === productId) {
         try {
-          // Verify receipt with backend (optional but recommended)
-          // const verified = await verifyReceipt(purchase.transactionReceipt);
-
-          // For now, trust the purchase (WARNING: can be spoofed without backend verification)
           const credits = PRODUCT_CREDITS[productId as keyof typeof PRODUCT_CREDITS];
 
           if (credits) {
             onSuccess(credits);
           }
 
-          // Finish transaction (mark as consumed)
-          await finishTransaction({ purchase, isConsumable: true });
+          await RNIap.finishTransaction({ purchase, isConsumable: true });
           console.log('[IAP] Transaction finished');
         } catch (error) {
           console.error('[IAP] Transaction finish error:', error);
@@ -132,35 +101,18 @@ export async function purchaseCredits(
       }
     });
 
-    purchaseErrorSubscription = purchaseErrorListener((error) => {
+    purchaseErrorSubscription = RNIap.purchaseErrorListener((error: any) => {
       console.error('[IAP] Purchase error:', error);
       onError(new Error(error.message || 'Purchase failed'));
     });
 
-    // Request purchase
-    await requestPurchase({ sku: productId });
+    await (RNIap as any).requestPurchase({ skus: [productId] });
   } catch (error) {
     console.error('[IAP] Purchase request error:', error);
     onError(error as Error);
   }
 }
 
-/**
- * Restore purchases (mainly for iOS, but can be used for debugging)
- */
 export async function restorePurchases(): Promise<void> {
-  // For consumables, there's nothing to restore
-  // This would be used for subscriptions/non-consumables
   console.log('[IAP] Restore purchases called (no-op for consumables)');
-}
-
-/**
- * Verify receipt with backend (recommended for production)
- * TODO: Implement backend verification
- */
-async function verifyReceipt(receipt: string): Promise<boolean> {
-  // In production, send receipt to your backend for verification
-  // Backend should validate with Google Play Developer API
-  console.log('[IAP] Receipt verification skipped (TODO: implement backend)');
-  return true;
 }
