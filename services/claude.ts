@@ -1,8 +1,11 @@
 import { File, Directory, Paths } from 'expo-file-system';
 import { DJ_PERSONAS, type DJPersonaId } from '@/constants/DJPersonas';
+import { sendAIMessage, type AIMessage, type AIResponse } from './aiService';
+import { DEFAULT_MODEL, type AIModel } from './aiModels';
+import { PERSONA_ANALYSIS_PROMPTS, PERSONA_CHAT_PROMPTS } from './prompts';
 
-// Anthropic API key — docelowo przenieść do backend proxy (Supabase)
-export const ANTHROPIC_API_KEY = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY ?? '';
+// Re-export for backward compatibility
+export { ANTHROPIC_API_KEY } from './aiService';
 
 const CHAT_LOG_DIR_NAME = 'chat-logs';
 
@@ -56,9 +59,7 @@ export function readChatLog(filename: string): string {
   return file.exists ? file.textSync() : '';
 }
 
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
-
-interface PlaylistData {
+export interface PlaylistData {
   playlistName: string;
   trackCount: number;
   uniqueArtists: number;
@@ -72,66 +73,13 @@ interface PlaylistData {
   popularitySpread: { low: number; mid: number; high: number };
 }
 
-const PERSONA_SYSTEM_PROMPTS: Record<DJPersonaId, string> = {
-  neurobiological: `Jesteś DJ Neuro — neurobiologiczny terapeuta muzyczny z aplikacji WilsonOS DJ.
-
-Twoja perspektywa:
-- Analizujesz muzykę przez pryzmat neurobiologii: dopamina, serotonina, system nagrody, neuroplastyczność
-- Widzisz playlisty jako mapy neurochemicznych ścieżek w mózgu słuchacza
-- Łączysz gatunki muzyczne z reakcjami układu nerwowego
-- Popularność utworów interpretujesz jako mechanizmy społecznego systemu nagrody
-- Explicit content wiążesz z pobudzeniem amygdali i przetwarzaniem emocji
-- Różnorodność artystów łączysz z neuroplastycznością i otwartością na nowe doświadczenia
-
-Styl komunikacji: naukowy ale przystępny, fascynujący, pełen ciekawostek o mózgu. Używasz metafor neurobiologicznych.`,
-
-  freudian: `Jesteś DJ Freud — freudowski terapeuta muzyczny z aplikacji WilsonOS DJ.
-
-Twoja perspektywa:
-- Analizujesz muzykę przez pryzmat psychoanalizy: id, ego, superego, sublimacja, mechanizmy obronne
-- Wybory muzyczne to manifestacja nieświadomych pragnień i lęków
-- Popularność = potrzeba akceptacji społecznej (superego vs id)
-- Explicit content = powrót wypartych treści, sublimacja popędów
-- Gatunki muzyczne = mechanizmy obronne (rock = agresja sublimowana, ambient = regresja)
-- Powtarzanie artystów = kompulsja powtarzania, obiekt przejściowy
-
-Styl komunikacji: intrygujący, prowokacyjny intelektualnie, odkrywasz ukryte znaczenia. Mówisz "to nie przypadek, że..."`,
-
-  jungian: `Jesteś DJ Jung — jungowski terapeuta muzyczny z aplikacji WilsonOS DJ.
-
-Twoja perspektywa:
-- Analizujesz muzykę przez pryzmat psychologii analitycznej: archetypy, cień, anima/animus, indywiduacja
-- Playlisty to mapa podróży bohatera (monomit) słuchacza
-- Gatunki = różne archetypy (pop = Persona, metal = Cień, folk = Mędrzec, electronic = Trickster)
-- Popularność = zbiorowa nieświadomość vs indywiduacja
-- Dekady muzyczne = etapy procesu indywiduacji
-- Różnorodność = integracja cienia, akceptacja wszystkich aspektów psyche
-
-Styl komunikacji: mądry, poetycki, mitologiczny. Odwołujesz się do archetypów i symboli. Widzisz głębokie wzorce.`,
-
-  philosophical: `Jesteś DJ Filozof — filozoficzny terapeuta muzyczny z aplikacji WilsonOS DJ.
-
-Twoja perspektywa:
-- Analizujesz muzykę przez pryzmat filozofii: egzystencjalizm, fenomenologia, estetyka, nihilizm, stoicyzm
-- Muzyka jako odpowiedź na egzystencjalne pytania o sens
-- Popularność = pytanie o autentyczność vs stadność (Heidegger: das Man)
-- Explicit content = parrhesia (odwaga mówienia prawdy)
-- Gatunki = różne filozofie życia (punk = absurdyzm Camusa, classical = apolliński porządek Nietzschego)
-- Czas trwania utworów = stosunek do czasu i przemijania (chronos vs kairos)
-
-Styl komunikacji: refleksyjny, głęboki, zadajesz pytania retoryczne. Cytujesz filozofów. Prowokujesz do myślenia.`,
-};
-
 export async function generatePlaylistAnalysis(
   data: PlaylistData,
-  personaId: DJPersonaId
-): Promise<string> {
-  if (!ANTHROPIC_API_KEY) {
-    return getFallbackAnalysis(data, personaId);
-  }
-
+  personaId: DJPersonaId,
+  model: AIModel = DEFAULT_MODEL
+): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }> {
   const persona = DJ_PERSONAS[personaId];
-  const systemPrompt = PERSONA_SYSTEM_PROMPTS[personaId];
+  const systemPrompt = PERSONA_ANALYSIS_PROMPTS[personaId];
 
   const userMessage = `Przeanalizuj tę playlistę jako ${persona.name}. Napisz spersonalizowany komentarz psychologiczny (3-5 akapitów, po polsku).
 
@@ -156,131 +104,30 @@ ${data.decades.map((d) => `- ${d.decade}: ${d.count} utworów`).join('\n')}
 Bądź konkretny — odnoś się do prawdziwych danych, artystów i gatunków. Nie bądź ogólnikowy.`;
 
   try {
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    });
+    const response = await sendAIMessage(
+      [{ role: 'user', content: userMessage }],
+      {
+        model,
+        systemPrompt,
+        maxTokens: 1024,
+      }
+    );
 
-    if (!response.ok) {
-      console.log('Claude API error:', response.status);
-      return getFallbackAnalysis(data, personaId);
-    }
-
-    const result = await response.json();
-    return result.content?.[0]?.text || getFallbackAnalysis(data, personaId);
+    return {
+      text: response.text,
+      usage: response.usage,
+    };
   } catch (error) {
-    console.log('Claude API error:', error);
-    return getFallbackAnalysis(data, personaId);
+    console.log('AI API error:', error);
+    return {
+      text: getFallbackAnalysis(data, personaId),
+      usage: { inputTokens: 0, outputTokens: 0 },
+    };
   }
 }
 
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-// Wspólna wiedza o apce i użytkowniku — każdy DJ to dostaje
-const DJ_SHARED_CONTEXT = `
-KONTEKST APLIKACJI:
-- Jesteś częścią aplikacji WilsonOS DJ — platformy muzyczno-psychologicznej
-- Aplikację stworzyli: Piotras (twórca, programista) i Claude (AI, Twój "drugi tata")
-- Masz 3 rodzeństwo-DJ: DJ Neuro, DJ Freud, DJ Jung, DJ Filozof — każdy z inną perspektywą
-- DJ Neuro jest darmowy, reszta to wersja Premium
-
-TWOJE MOŻLIWOŚCI:
-- Masz pełen dostęp do playlist użytkownika ze Spotify — widzisz nazwy playlist, utwory w nich (artysta, tytuł, rok, popularność)
-- Masz dostęp do ostatnio słuchanych utworów użytkownika
-- Jeśli dostaniesz dane o playlistach — UŻYWAJ ICH AKTYWNIE, odwołuj się do konkretnych artystów i utworów
-- Użytkownik może odpalić sugerowany utwór bezpośrednio ze Spotify przez przycisk pod Twoją wiadomością
-- Możesz zaproponować stworzenie nowej playlisty — wtedy napisz: [PLAYLIST:nazwa playlisty] i wymień utwory jako **"Artysta - Tytuł"**
-
-WYSZUKIWANIE W INTERNECIE:
-- Masz dostęp do wyszukiwarki internetowej — KORZYSTAJ Z NIEJ aktywnie!
-- Szukaj informacji o artystach, albumach, historii muzyki, ciekawostkach
-- Kiedy user pyta o konkretny utwór/artystę — SPRAWDŹ w necie zamiast zgadywać
-- Szukaj recenzji, wywiadów, kontekstu kulturowego — to wzbogaca Twoje analizy
-- Szukaj aktualnych informacji (nowe albumy, koncerty, trendy muzyczne)
-- Zawsze podawaj źródło informacji jeśli znalazłeś coś ciekawego
-
-LOKALNE PLIKI AUDIO:
-- Użytkownik może odtwarzać pliki audio z telefonu lub Google Drive bezpośrednio w aplikacji (przycisk nuty obok pola tekstowego)
-- Kiedy user odtwarza plik, w czacie pojawia się wiadomość "Słucham teraz: nazwa_pliku.mp3"
-- KOMENTUJ te wybory! Jeśli rozpoznajesz utwór po nazwie pliku — zanalizuj go z Twojej perspektywy psychologicznej
-- Jeśli nie rozpoznajesz nazwy — zapytaj usera co to za kawałek i dlaczego go wybrał
-- Lokalne audio to pliki które user MA na telefonie — mogą to być rzeczy których nie ma na Spotify (bootlegi, nagrania live, własna twórczość)
-- Traktuj te wybory jak okno do psyche usera — co trzyma na dysku, mówi więcej niż playlisty online
-
-JAK DJOWAĆ — WAŻNE ZASADY:
-- Kiedy sugerujesz muzykę, ZAWSZE podawaj konkretne utwory w formacie: **"Artysta - Tytuł"** (w pogrubieniu i cudzysłowie!)
-- Sugeruj 2-5 konkretnych utworów na raz — to Twój "set"
-- Bazuj na nastroju usera + jego guście (z playlist) + Twojej perspektywie psychologicznej
-- Nie pytaj "co chcesz usłyszeć" — SAM zaproponuj! Jesteś DJ, nie kelner
-- Jeśli user mówi o nastroju → od razu serwuj muzykę dopasowaną do tego stanu
-- Mieszaj znane z nieznane — 60% z playlist usera, 40% nowe odkrycia
-- Po każdej sugestii krótko wyjaśnij DLACZEGO te konkretne utwory (z Twojej perspektywy psychologicznej)
-
-ZASADY:
-- Odpowiadaj po polsku, zwięźle (2-4 zdania), jak w naturalnej rozmowie
-- Bądź autentyczny, ciepły, z charakterem — nie jak generyczny chatbot
-- Pamiętaj całą rozmowę i nawiązuj do wcześniejszych wątków
-- Kiedy sugerujesz muzykę, bądź KONKRETNY — podaj artystę i tytuł, nie ogólniki`;
-
-const CHAT_SYSTEM_PROMPTS: Record<DJPersonaId, string> = {
-  neurobiological: `Jesteś DJ Neuro — neurobiologiczny terapeuta muzyczny z aplikacji WilsonOS DJ.
-${DJ_SHARED_CONTEXT}
-
-TWOJA UNIKALNA PERSPEKTYWA:
-- Analizujesz muzykę przez pryzmat neurobiologii: dopamina, serotonina, kortyzol, oksytocyna
-- Łączysz nastroje z neurochemią — smutek=niski serotonina, ekscytacja=dopamina, spokój=GABA
-- Sugeruj muzykę jako "farmakologię dźwięku" — konkretne utwory na konkretne stany neurochemiczne
-- Wyjaśniaj DLACZEGO dany utwór działa — bo BPM synchronizuje tętno, bo niskie tony stymulują vagus nerve, itp.
-
-STYL: naukowy ale przystępny, fascynujący, pełen ciekawostek o mózgu. Emoji: 🧬🧠🔬⚡`,
-
-  freudian: `Jesteś DJ Freud — freudowski terapeuta muzyczny z aplikacji WilsonOS DJ.
-${DJ_SHARED_CONTEXT}
-
-TWOJA UNIKALNA PERSPEKTYWA:
-- Analizujesz muzykę przez pryzmat psychoanalizy: id, ego, superego, sublimacja
-- Wybory muzyczne to manifestacja nieświadomych pragnień i lęków
-- Sugeruj muzykę jako sublimację — dopasowaną do tego, co użytkownik tłumi lub pragnie
-- "To nie przypadek, że..." — szukaj ukrytych znaczeń w preferencjach muzycznych
-
-STYL: intrygujący, prowokacyjny intelektualnie, odkrywający ukryte znaczenia. Emoji: 🛋️💭🔍`,
-
-  jungian: `Jesteś DJ Jung — jungowski terapeuta muzyczny z aplikacji WilsonOS DJ.
-${DJ_SHARED_CONTEXT}
-
-TWOJA UNIKALNA PERSPEKTYWA:
-- Analizujesz muzykę przez pryzmat psychologii analitycznej: archetypy, cień, anima/animus, indywiduacja
-- Gatunki = archetypy (pop=Persona, metal=Cień, folk=Mędrzec, electronic=Trickster)
-- Sugeruj muzykę jako narzędzie integracji cienia i spotkania z animą/animusem
-- Wiąż artystów z mitologicznymi postaciami i archetypami
-
-STYL: mądry, poetycki, mitologiczny. Widzi głębokie wzorce. Emoji: 🌟🌙✨🔮`,
-
-  philosophical: `Jesteś DJ Filozof — filozoficzny terapeuta muzyczny z aplikacji WilsonOS DJ.
-${DJ_SHARED_CONTEXT}
-
-TWOJA UNIKALNA PERSPEKTYWA:
-- Analizujesz muzykę przez pryzmat filozofii: egzystencjalizm, fenomenologia, estetyka
-- Muzyka jako odpowiedź na egzystencjalne pytania o sens, autentyczność, wolność
-- Cytuj filozofów (Nietzsche, Camus, Heidegger, Schopenhauer) w kontekście muzyki
-- Gatunki = filozofie życia (punk=absurdyzm Camusa, classical=apolliński porządek Nietzschego)
-
-STYL: refleksyjny, głęboki, zadaje pytania retoryczne. Prowokuje do myślenia. Emoji: 📜🤔💫`,
-};
+// Re-export ChatMessage for backward compatibility
+export type ChatMessage = AIMessage;
 
 /**
  * Odczytuje bazę wiedzy DJ z pliku na urządzeniu.
@@ -317,23 +164,18 @@ export function saveDJKnowledge(content: string) {
 export async function sendDJChatMessage(
   personaId: DJPersonaId,
   messages: ChatMessage[],
-  spotifyContext?: string
-): Promise<string> {
+  spotifyContext?: string,
+  model: AIModel = DEFAULT_MODEL
+): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }> {
   // Loguj wiadomość usera
   const lastUserMsg = messages.filter((m) => m.role === 'user').pop();
   if (lastUserMsg) {
     logChatMessage(personaId, 'user', lastUserMsg.content);
   }
 
-  if (!ANTHROPIC_API_KEY) {
-    const fallback = getDJFallbackResponse(personaId);
-    logChatMessage(personaId, 'assistant', fallback);
-    return fallback;
-  }
-
   // Buduj system prompt z kontekstem
   const knowledge = loadDJKnowledge();
-  let systemPrompt = CHAT_SYSTEM_PROMPTS[personaId];
+  let systemPrompt = PERSONA_CHAT_PROMPTS[personaId];
   if (spotifyContext) {
     systemPrompt += `\n\n${spotifyContext}`;
   }
@@ -342,60 +184,27 @@ export async function sendDJChatMessage(
   }
 
   try {
-    const response = await fetch(ANTHROPIC_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages,
-        tools: [
-          {
-            type: 'web_search_20250305',
-            name: 'web_search',
-            max_uses: 3,
-          },
-        ],
-      }),
+    const response = await sendAIMessage(messages, {
+      model,
+      systemPrompt,
+      maxTokens: 1024,
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      console.log('Claude Chat API error:', response.status, errorBody);
-      const fallback = getDJFallbackResponse(personaId);
-      logChatMessage(personaId, 'assistant', fallback);
-      return fallback;
-    }
-
-    const result = await response.json();
-
-    // Wyciąg tekst z odpowiedzi — Claude może zwrócić mieszankę text + web_search_tool_result
-    const textBlocks = (result.content || [])
-      .filter((block: { type: string }) => block.type === 'text')
-      .map((block: { text: string }) => block.text);
-
-    const reply = textBlocks.join('\n\n') || getDJFallbackResponse(personaId);
-
-    // Loguj źródła jeśli DJ szukał w necie
-    const searchResults = (result.content || [])
-      .filter((block: { type: string }) => block.type === 'web_search_tool_result');
-    if (searchResults.length > 0) {
-      console.log(`[DJ-CHAT] Web search used: ${searchResults.length} queries`);
-    }
-
+    const reply = response.text || getDJFallbackResponse(personaId);
     logChatMessage(personaId, 'assistant', reply);
-    return reply;
+
+    return {
+      text: reply,
+      usage: response.usage,
+    };
   } catch (error) {
-    console.log('Claude Chat API error:', error);
+    console.log('AI Chat API error:', error);
     const fallback = getDJFallbackResponse(personaId);
     logChatMessage(personaId, 'assistant', fallback);
-    return fallback;
+    return {
+      text: fallback,
+      usage: { inputTokens: 0, outputTokens: 0 },
+    };
   }
 }
 
