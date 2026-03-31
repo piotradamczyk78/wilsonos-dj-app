@@ -10,6 +10,7 @@ import 'react-native-reanimated';
 
 import { Colors } from '@/constants/Colors';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { CreditsProvider } from '@/contexts/CreditsContext';
 
 export { ErrorBoundary } from 'expo-router';
 
@@ -52,32 +53,34 @@ export default function RootLayout() {
   }
 
   return (
-    <AuthProvider>
-      <ThemeProvider value={WilsonDarkTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="auth/spotify-login"
-            options={{ presentation: 'modal', headerShown: false }}
-          />
-          <Stack.Screen
-            name="analysis/[id]"
-            options={{
-              title: 'Analiza',
-              headerStyle: { backgroundColor: Colors.surface },
-              headerTintColor: Colors.text,
-            }}
-          />
-          <Stack.Screen
-            name="session/[personaId]"
-            options={{
-              title: 'Sesja DJ',
-              headerStyle: { backgroundColor: Colors.surface },
-              headerTintColor: Colors.text,
-            }}
-          />
-        </Stack>
-      </ThemeProvider>
-    </AuthProvider>
+    <CreditsProvider>
+      <AuthProvider>
+        <ThemeProvider value={WilsonDarkTheme}>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="auth/spotify-login"
+              options={{ presentation: 'modal', headerShown: false }}
+            />
+            <Stack.Screen
+              name="analysis/[id]"
+              options={{
+                title: 'Analiza',
+                headerStyle: { backgroundColor: Colors.surface },
+                headerTintColor: Colors.text,
+              }}
+            />
+            <Stack.Screen
+              name="session/[personaId]"
+              options={{
+                title: 'Sesja DJ',
+                headerStyle: { backgroundColor: Colors.surface },
+                headerTintColor: Colors.text,
+              }}
+            />
+          </Stack>
+        </ThemeProvider>
+      </AuthProvider>
+    </CreditsProvider>
   );
 }
