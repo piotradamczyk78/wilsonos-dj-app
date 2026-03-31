@@ -129,11 +129,12 @@ export default function PlaylistAnalysisScreen() {
   async function generateAiCommentary(data: AnalysisResult, persona: DJPersonaId) {
     setAiLoading(true);
     try {
-      const commentary = await generatePlaylistAnalysis(
+      const result = await generatePlaylistAnalysis(
         { ...data, playlistName: name || 'Playlista' },
         persona
       );
-      setAiCommentary(commentary);
+      setAiCommentary(result.text);
+      // TODO: Use result.usage to deduct credits
     } catch (err) {
       console.log('AI commentary error:', err);
     } finally {
