@@ -178,15 +178,16 @@ export default function DJChatScreen() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     try {
-      const reply = await sendDJChatMessage(personaId as DJPersonaId, chatHistory, spotifyContext);
+      const result = await sendDJChatMessage(personaId as DJPersonaId, chatHistory, spotifyContext);
       setMessages((prev) => [
         ...prev,
         {
           id: `dj-${Date.now()}`,
           role: 'assistant',
-          content: reply,
+          content: result.text,
         },
       ]);
+      // TODO: Use result.usage to deduct credits
     } catch {
       setMessages((prev) => [
         ...prev,
